@@ -1,0 +1,409 @@
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
+import { Transaction } from '@/lib/supabase';
+import { compressImage } from '@/lib/imageUtils';
+
+type EditModalProps = {
+  transaction: Transaction | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onUpdate: (body: FormData | { tanggal: string; uraian: string; tipe: 'masuk' | 'keluar'; jumlah: number; sumber_atau_penerima: string }) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+};
+
+export default function EditModal({ transaction, isOpen, onClose, onUpdate, onDelete }: EditModalProps) {
+  const [tanggal, setTanggal] = useState('');
+  const [uraian, setUraian] = useState('');
+  const [tipe, setTipe] = useState<'masuk' | 'keluar'>('masuk');
+  const [jumlah, setJumlah] = useState('');
+  const [sumber_atau_penerima, setSumberAtauPenerima] = useState('');
+  const [lampiran, setLampiran] = useState<File | null>(null);
+  const [lampiranPreview, setLampiranPreview] = useState<string | null>(null);
+  const [removeLampiran, setRemoveLampiran] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showDeleteSuccess, setShowDeleteSuccess] = useState(false);
+  const [useBank, setUseBank] = useState(false);
+  const [originalUseBank, setOriginalUseBank] = useState(false);
+  const [checkingBank, setCheckingBank] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen && transaction) {
+      setTanggal(transaction.tanggal);
+      setUraian(transaction.uraian);
+      setTipe(transaction.tipe);
+      setJumlah(transaction.jumlah.toString());
+      setSumberAtauPenerima(transaction.sumber_atau_penerima);
+      setLampiran(null);
+      setLampiranPreview(transaction.lampiran || null);
+      setRemoveLampiran(false);
+      
+      // Check if this transaction has a bank mutation
+      checkBankMutation(transaction.id);
+    }
+  }, [isOpen, transaction]);
+
+  const checkBankMutation = async (transactionId: string) => {
+    setCheckingBank(true);
+    try {
+      console.log('Checking bank mutation for transaction:', transactionId);
+      const res = await fetch(`/api/bank-mutations?transaction_id=${transactionId}`, { cache: 'no-store' });
+      const data = await res.json();
+      console.log('Bank mutation check result:', data);
+      const hasBankMutation = Array.isArray(data) && data.length > 0;
+      console.log('Has bank mutation:', hasBankMutation);
+      setUseBank(hasBankMutation);
+      setOriginalUseBank(hasBankMutation);
+    } catch (err) {
+      console.error('Failed to check bank mutation:', err);
+      setUseBank(false);
+      setOriginalUseBank(false);
+    } finally {
+      setCheckingBank(false);
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const compressed = await compressImage(file);
+      setLampiran(compressed);
+      setLampiranPreview(URL.createObjectURL(compressed));
+      setRemoveLampiran(false);
+    }
+  };
+
+  const removeFile = () => {
+    setLampiran(null);
+    setLampiranPreview(null);
+    setRemoveLampiran(true);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!transaction || !tanggal || !uraian || !jumlah || !sumber_atau_penerima) return;
+
+    setLoading(true);
+    try {
+      // Update transaction
+      if (lampiran || removeLampiran) {
+        const formData = new FormData();
+        formData.append('tanggal', tanggal);
+        formData.append('uraian', uraian);
+        formData.append('tipe', tipe);
+        formData.append('jumlah', jumlah);
+        formData.append('sumber_atau_penerima', sumber_atau_penerima);
+
+        if (removeLampiran) {
+          formData.append('remove_lampiran', 'true');
+        } else if (lampiran) {
+          formData.append('lampiran', lampiran);
+          formData.append('keep_lampiran', 'false');
+        }
+
+        await onUpdate(formData);
+      } else {
+        await onUpdate({
+          tanggal,
+          uraian,
+          tipe,
+          jumlah: parseInt(jumlah),
+          sumber_atau_penerima,
+        });
+      }
+
+      // Handle bank mutation changes
+      if (useBank !== originalUseBank) {
+        if (useBank && !originalUseBank) {
+          // Create new bank mutation
+          const bankAmount = tipe === 'masuk' ? parseInt(jumlah) : -parseInt(jumlah);
+          await fetch('/api/bank-mutations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tanggal,
+              uraian: `${tipe === 'masuk' ? 'Pemasukan' : 'Pengeluaran'}: ${uraian}`,
+              jumlah: bankAmount,
+              transaction_id: transaction.id,
+            }),
+          });
+        } else if (!useBank && originalUseBank) {
+          // Delete existing bank mutation
+          await fetch(`/api/bank-mutations?transaction_id=${transaction.id}`, {
+            method: 'DELETE',
+          });
+        }
+      } else if (useBank && originalUseBank) {
+        // Update existing bank mutation
+        const bankAmount = tipe === 'masuk' ? parseInt(jumlah) : -parseInt(jumlah);
+        await fetch(`/api/bank-mutations?transaction_id=${transaction.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tanggal,
+            uraian: `${tipe === 'masuk' ? 'Pemasukan' : 'Pengeluaran'}: ${uraian}`,
+            jumlah: bankAmount,
+          }),
+        });
+      }
+
+      onClose();
+    } catch (err) {
+      alert('Gagal memperbarui transaksi');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!transaction) return;
+    try {
+      await onDelete(transaction.id);
+      setShowDeleteConfirm(false);
+      setShowDeleteSuccess(true);
+    } catch (err) {
+      alert('Gagal menghapus transaksi');
+    }
+  };
+
+  if (!isOpen || !transaction) return null;
+
+  return (
+    <>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <div className="fixed inset-0 bg-black/50" onClick={onClose} />
+
+      <div className="relative bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-lg max-h-[85vh] sm:max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b px-4 sm:px-6 py-4 flex items-center justify-between rounded-t-2xl">
+          <h2 className="text-lg sm:text-xl font-bold text-green-700">Edit Transaksi</h2>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 text-2xl leading-none w-8 h-8 flex items-center justify-center"
+          >
+            &times;
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 pb-24 sm:pb-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal</label>
+            <input
+              type="date"
+              value={tanggal}
+              onChange={(e) => setTanggal(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Jenis Transaksi</label>
+            <div className="flex gap-6">
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="radio"
+                  value="masuk"
+                  checked={tipe === 'masuk'}
+                  onChange={() => setTipe('masuk')}
+                  className="mr-2 w-4 h-4 text-green-600"
+                />
+                <span className="text-green-600 font-medium">Pemasukan</span>
+              </label>
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="radio"
+                  value="keluar"
+                  checked={tipe === 'keluar'}
+                  onChange={() => setTipe('keluar')}
+                  className="mr-2 w-4 h-4 text-red-600"
+                />
+                <span className="text-red-600 font-medium">Pengeluaran</span>
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {tipe === 'masuk' ? 'Uang Diterima Dari' : 'Uang Diberikan Kepada'}
+            </label>
+            <input
+              type="text"
+              value={sumber_atau_penerima}
+              onChange={(e) => setSumberAtauPenerima(e.target.value)}
+              placeholder={tipe === 'masuk' ? 'Contoh: H. Ahmad (Infaq)' : 'Contoh: Toko Bangunan (Semen)'}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah (Rp)</label>
+            <input
+              type="number"
+              value={jumlah}
+              onChange={(e) => setJumlah(e.target.value)}
+              placeholder="0"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Uraian</label>
+            <input
+              type="text"
+              value={uraian}
+              onChange={(e) => setUraian(e.target.value)}
+              placeholder="Contoh: Infaq Jumat, Pembelian Karpet"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+              required
+            />
+          </div>
+
+          {/* Bank Integration Checkbox */}
+          {checkingBank ? (
+            <div className="bg-gray-50 border border-gray-200 rounded-md p-3">
+              <p className="text-sm text-gray-500">Memeriksa status bank...</p>
+            </div>
+          ) : (
+            <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+              <label className="flex items-start cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useBank}
+                  onChange={(e) => setUseBank(e.target.checked)}
+                  className="mt-0.5 mr-2 w-4 h-4 text-blue-600"
+                />
+                <div>
+                  <span className="text-sm font-medium text-gray-700">
+                    {tipe === 'masuk' ? 'Masuk ke Rekening Bank' : 'Ambil dari Rekening Bank'}
+                  </span>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {tipe === 'masuk' 
+                      ? 'Centang jika uang ini masuk ke rekening bank' 
+                      : 'Centang jika uang ini diambil dari rekening bank'}
+                  </p>
+                </div>
+              </label>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Lampiran (Opsional)</label>
+            <label className="cursor-pointer">
+              <div className="border-2 border-dashed border-gray-300 rounded-md px-4 py-6 text-center hover:border-green-500 transition-colors">
+                <svg className="w-8 h-8 mx-auto text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <p className="text-sm text-gray-500">{lampiranPreview ? 'Ganti gambar' : 'Klik untuk pilih gambar'}</p>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+            </label>
+
+            {lampiranPreview && (
+              <div className="mt-3 relative">
+                <img src={lampiranPreview} alt="Preview" className="w-full h-32 object-cover rounded-md" />
+                <button
+                  type="button"
+                  onClick={removeFile}
+                  className="absolute top-2 right-2 bg-red-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm hover:bg-red-600"
+                >
+                  &times;
+                </button>
+                {removeLampiran && <p className="text-xs text-red-500 mt-1">Lampiran akan dihapus</p>}
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-3 pt-2 sm:static fixed bottom-0 left-0 right-0 p-4 bg-white border-t sm:border-t-0 sm:bg-transparent sm:p-0 sm:static">
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="flex-1 bg-red-600 text-white px-6 py-3 rounded-md hover:bg-red-700 transition-colors"
+            >
+              Hapus
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 bg-gray-200 text-gray-700 px-6 py-3 rounded-md hover:bg-gray-300 transition-colors"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 bg-green-600 text-white px-6 py-3 rounded-md hover:bg-green-700 transition-colors disabled:bg-gray-400"
+            >
+              {loading ? 'Menyimpan...' : 'Simpan'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {/* Modal Konfirmasi Hapus */}
+    {showDeleteConfirm && (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
+        <div className="fixed inset-0 bg-black/60" onClick={() => setShowDeleteConfirm(false)} />
+        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+          <div className="flex items-center justify-center w-12 h-12 bg-red-100 rounded-full mx-auto mb-4">
+            <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-bold text-gray-800 text-center mb-2">Hapus Transaksi</h3>
+          <p className="text-sm text-gray-500 text-center mb-6">Yakin ingin menghapus transaksi ini? Tindakan ini tidak dapat dibatalkan.</p>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(false)}
+              className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-lg font-medium hover:bg-gray-200 transition-colors"
+            >
+              Batal
+            </button>
+            <button
+              type="button"
+              onClick={handleDelete}
+              className="flex-1 bg-red-600 text-white py-2.5 rounded-lg font-medium hover:bg-red-700 transition-colors"
+            >
+              Hapus
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    {/* Modal Berhasil Dihapus */}
+    {showDeleteSuccess && (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
+        <div className="fixed inset-0 bg-black/60" />
+        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center">
+          <div className="flex items-center justify-center w-12 h-12 bg-green-100 rounded-full mx-auto mb-4">
+            <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-bold text-gray-800 mb-2">Berhasil Dihapus</h3>
+          <p className="text-sm text-gray-500 mb-6">Transaksi telah berhasil dihapus.</p>
+          <button
+            type="button"
+            onClick={() => { setShowDeleteSuccess(false); onClose(); }}
+            className="w-full bg-green-600 text-white py-2.5 rounded-lg font-medium hover:bg-green-700 transition-colors"
+          >
+            OK
+          </button>
+        </div>
+      </div>
+    )}
+  </>
+  );
+}

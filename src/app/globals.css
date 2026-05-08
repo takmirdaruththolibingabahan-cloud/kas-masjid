@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+/* Pastikan logo dengan transparansi ditampilkan dengan benar */
+img[src*="daruth-tholibin"] {
+  background: transparent !important;
+  mix-blend-mode: normal;
+}
