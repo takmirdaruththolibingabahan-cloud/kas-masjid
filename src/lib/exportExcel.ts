@@ -158,10 +158,10 @@ export async function exportToExcel(
         extension: ext as 'jpeg' | 'png' | 'gif',
       });
       sheet.addImage(imageId, {
-        tl: { col: 7, row: rowIndex - 1 },  // kolom H (index 7), row sesuai
-        br: { col: 8, row: rowIndex },
+        tl: { col: 7, row: rowIndex - 1, nativeCol: 0, nativeColOff: 0, nativeRow: 0, nativeRowOff: 0 },
+        br: { col: 8, row: rowIndex, nativeCol: 0, nativeColOff: 0, nativeRow: 0, nativeRowOff: 0 },
         editAs: 'oneCell',
-      });
+      } as any);
       // Kosongkan teks placeholder karena sudah ada gambar
       sheet.getCell(rowIndex, 8).value = '';
     }
