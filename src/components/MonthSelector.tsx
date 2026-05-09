@@ -57,70 +57,79 @@ export default function MonthSelector({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 bg-white border border-gray-200 rounded-lg shadow-lg w-64 z-50 p-3">
-          {view === 'month' ? (
-            <>
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-semibold text-gray-700">Pilih Bulan</h3>
-                <button
-                  onClick={() => setView('year')}
-                  className="text-xs text-green-600 hover:text-green-700 font-medium"
-                >
-                  Ganti Tahun
-                </button>
-              </div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {MONTHS.map((month, index) => (
+        <>
+          {/* Backdrop untuk mobile */}
+          <div 
+            className="fixed inset-0 bg-black/20 z-40 md:hidden"
+            onClick={() => setIsOpen(false)}
+          />
+          
+          {/* Modal */}
+          <div className="fixed md:absolute left-1/2 -translate-x-1/2 md:translate-x-0 md:left-auto md:right-0 top-1/2 -translate-y-1/2 md:translate-y-0 md:top-full mt-0 md:mt-2 bg-white border border-gray-200 rounded-lg shadow-xl md:shadow-lg w-[90vw] max-w-xs md:w-64 z-50 p-3">
+            {view === 'month' ? (
+              <>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-gray-700">Pilih Bulan</h3>
                   <button
-                    key={index}
-                    onClick={() => {
-                      onMonthChange(index + 1);
-                      setIsOpen(false);
-                    }}
-                    className={`text-xs py-1.5 rounded-md transition-colors ${
-                      selectedMonth === index + 1
-                        ? 'bg-green-600 text-white font-medium'
-                        : 'text-gray-700 hover:bg-gray-100'
-                    }`}
+                    onClick={() => setView('year')}
+                    className="text-xs text-green-600 hover:text-green-700 font-medium"
                   >
-                    {month.substring(0, 3)}
+                    Ganti Tahun
                   </button>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <button
-                  onClick={() => setView('month')}
-                  className="text-xs text-green-600 hover:text-green-700 font-medium"
-                >
-                  Pilih Bulan
-                </button>
-                <h3 className="text-sm font-semibold text-gray-700">Pilih Tahun</h3>
-                <div className="w-16" />
-              </div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {years.map((year) => (
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {MONTHS.map((month, index) => (
+                    <button
+                      key={index}
+                      onClick={() => {
+                        onMonthChange(index + 1);
+                        setIsOpen(false);
+                      }}
+                      className={`text-xs py-1.5 rounded-md transition-colors ${
+                        selectedMonth === index + 1
+                          ? 'bg-green-600 text-white font-medium'
+                          : 'text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      {month.substring(0, 3)}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div>
+                <div className="flex items-center justify-between mb-2">
                   <button
-                    key={year}
-                    onClick={() => {
-                      onYearChange(year);
-                      setView('month');
-                    }}
-                    className={`text-xs py-1.5 rounded-md transition-colors ${
-                      selectedYear === year
-                        ? 'bg-green-600 text-white font-medium'
-                        : 'text-gray-700 hover:bg-gray-100'
-                    }`}
+                    onClick={() => setView('month')}
+                    className="text-xs text-green-600 hover:text-green-700 font-medium"
                   >
-                    {year}
+                    Pilih Bulan
                   </button>
-                ))}
+                  <h3 className="text-sm font-semibold text-gray-700">Pilih Tahun</h3>
+                  <div className="w-16" />
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {years.map((year) => (
+                    <button
+                      key={year}
+                      onClick={() => {
+                        onYearChange(year);
+                        setView('month');
+                      }}
+                      className={`text-xs py-1.5 rounded-md transition-colors ${
+                        selectedYear === year
+                          ? 'bg-green-600 text-white font-medium'
+                          : 'text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      {year}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
