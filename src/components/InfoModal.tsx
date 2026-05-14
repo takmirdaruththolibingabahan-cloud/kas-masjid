@@ -7,6 +7,8 @@ type InfoModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onEdit?: (transaction: Transaction) => void;
+  onGoToMonth?: (year: number, month: number) => void; // Callback untuk navigasi ke bulan
+  isSearchMode?: boolean; // Apakah sedang dalam mode pencarian
 };
 
 function formatRupiah(amount: number): string {
@@ -26,8 +28,20 @@ function formatDate(dateStr: string): string {
   });
 }
 
-export default function InfoModal({ transaction, isOpen, onClose, onEdit }: InfoModalProps) {
+export default function InfoModal({ transaction, isOpen, onClose, onEdit, onGoToMonth, isSearchMode }: InfoModalProps) {
   if (!isOpen || !transaction) return null;
+
+  // Extract year and month from transaction date
+  const transactionDate = new Date(transaction.tanggal);
+  const transactionYear = transactionDate.getFullYear();
+  const transactionMonth = transactionDate.getMonth() + 1; // 0-indexed, so add 1
+
+  const handleGoToMonth = () => {
+    if (onGoToMonth) {
+      onGoToMonth(transactionYear, transactionMonth);
+      onClose();
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
@@ -86,6 +100,21 @@ export default function InfoModal({ transaction, isOpen, onClose, onEdit }: Info
                 className="w-full h-40 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
                 onClick={() => window.open(transaction.lampiran!, '_blank')}
               />
+            </div>
+          )}
+
+          {/* Tombol navigasi ke bulan - hanya tampil saat search mode */}
+          {isSearchMode && onGoToMonth && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <button
+                onClick={handleGoToMonth}
+                className="w-full flex items-center justify-center gap-2 text-blue-700 hover:text-blue-800 font-medium text-sm"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                Lihat Tabel Bulan Ini
+              </button>
             </div>
           )}
 

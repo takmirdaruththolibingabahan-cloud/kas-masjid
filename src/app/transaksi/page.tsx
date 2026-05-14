@@ -55,6 +55,10 @@ function TransaksiContent() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const exportRef = useRef<HTMLDivElement>(null);
   const [showBankConfirmModal, setShowBankConfirmModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Transaction[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   const fetchTransactions = useCallback(async () => {
     setLoading(true);
@@ -72,6 +76,61 @@ function TransaksiContent() {
       setLoading(false);
     }
   }, [selectedYear, selectedMonth, refreshKey]);
+
+  // Search transactions across all years
+  const handleSearch = async (query: string) => {
+    setSearchQuery(query);
+    
+    if (!query.trim()) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      // Fetch all transactions without year/month filter
+      const res = await fetch('/api/transactions', { cache: 'no-store' });
+      const allData = await res.json();
+      const allTransactions = Array.isArray(allData) ? allData : [];
+      
+      // Filter by search query (case insensitive)
+      const filtered = allTransactions.filter((t: Transaction) =>
+        t.uraian.toLowerCase().includes(query.toLowerCase())
+      );
+      
+      setSearchResults(filtered);
+    } catch (err) {
+      console.error('Gagal mencari transaksi:', err);
+      setSearchResults([]);
+    }
+  };
+
+  const clearSearch = () => {
+    setSearchQuery('');
+    setSearchResults([]);
+    setIsSearching(false);
+  };
+
+  const handleGoToMonth = (year: number, month: number) => {
+    // Clear search dan navigasi ke bulan yang dipilih
+    clearSearch();
+    setSelectedYear(year);
+    setSelectedMonth(month);
+    
+    // Set highlighted transaction ID
+    if (infoTransaction) {
+      setHighlightedId(infoTransaction.id);
+      
+      // Clear highlight setelah 3 detik
+      setTimeout(() => {
+        setHighlightedId(null);
+      }, 3000);
+    }
+    
+    // Update URL
+    router.push(`/transaksi?year=${year}&month=${month}`);
+  };
 
   useEffect(() => { fetchTransactions(); }, [fetchTransactions]);
 
@@ -277,10 +336,45 @@ function TransaksiContent() {
             </div>
           </div>
 
+          {/* Search Box */}
+          <div className="mb-4">
+            <div className="relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+                placeholder="Cari uraian transaksi di semua tahun..."
+                className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              />
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              {searchQuery && (
+                <button
+                  onClick={clearSearch}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+            {isSearching && searchQuery && (
+              <div className="mt-2 text-sm text-gray-600">
+                Ditemukan {searchResults.length} transaksi
+              </div>
+            )}
+          </div>
+
           {loading ? (
             <div className="text-center py-8 text-gray-500">Memuat data...</div>
           ) : (
-            <MonthlyTable transactions={transactions} onRowClick={(t) => setInfoTransaction(t)} />
+            <MonthlyTable 
+              transactions={isSearching ? searchResults : transactions} 
+              onRowClick={(t) => setInfoTransaction(t)}
+              highlightedId={highlightedId}
+            />
           )}
         </div>
       </div>
@@ -412,6 +506,8 @@ function TransaksiContent() {
           onClose={() => setIsAddModalOpen(false)} 
           onSubmit={handleAddTransaction}
           onBankTransactionCreated={handleBankTransactionCreated}
+          defaultMonth={selectedMonth}
+          defaultYear={selectedYear}
         />
       )}
 
@@ -420,6 +516,8 @@ function TransaksiContent() {
         isOpen={!!infoTransaction}
         onClose={() => setInfoTransaction(null)}
         onEdit={isAdmin ? handleEditFromInfo : undefined}
+        onGoToMonth={handleGoToMonth}
+        isSearchMode={isSearching}
       />
 
       {isAdmin && (

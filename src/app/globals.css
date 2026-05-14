@@ -5,3 +5,27 @@ img[src*="daruth-tholibin"] {
   background: transparent !important;
   mix-blend-mode: normal;
 }
+
+/* Animasi highlight untuk row yang dicari */
+@keyframes highlight {
+  0% {
+    background-color: rgb(254, 240, 138) !important; /* yellow-200 */
+  }
+  25% {
+    background-color: rgb(253, 224, 71) !important; /* yellow-300 */
+  }
+  50% {
+    background-color: rgb(254, 240, 138) !important; /* yellow-200 */
+  }
+  75% {
+    background-color: rgb(253, 224, 71) !important; /* yellow-300 */
+  }
+  100% {
+    background-color: rgb(254, 240, 138) !important; /* yellow-200 */
+  }
+}
+
+.animate-highlight {
+  animation: highlight 2s ease-in-out !important;
+  background-color: rgb(254, 240, 138) !important;
+}

@@ -9,14 +9,37 @@ type TransactionFormProps = {
   onSubmit: (body: FormData | { tanggal: string; uraian: string; tipe: 'masuk' | 'keluar'; jumlah: number; sumber_atau_penerima: string }) => Promise<void>;
   isBankMutationMode?: boolean; // Mode khusus untuk bank mutations, hide checkbox
   onBankTransactionCreated?: () => void; // Callback ketika transaksi bank dibuat
+  defaultMonth?: number; // Bulan yang sedang dibuka (1-12)
+  defaultYear?: number; // Tahun yang sedang dibuka
 };
 
-export default function TransactionModal({ isOpen, onClose, onSubmit, isBankMutationMode = false, onBankTransactionCreated }: TransactionFormProps) {
-  const now = new Date().toISOString().split('T')[0];
-  const [tanggal, setTanggal] = useState(now);
+export default function TransactionModal({ isOpen, onClose, onSubmit, isBankMutationMode = false, onBankTransactionCreated, defaultMonth, defaultYear }: TransactionFormProps) {
+  // Jika ada defaultMonth dan defaultYear, gunakan tanggal hari ini tapi dengan bulan/tahun yang sedang dibuka
+  // Jika tanggal hari ini melebihi hari terakhir bulan tersebut, gunakan hari terakhir
+  const getDefaultDate = () => {
+    if (defaultMonth && defaultYear) {
+      const today = new Date();
+      const currentDay = today.getDate();
+      
+      // Cari hari terakhir dari bulan yang dipilih
+      const lastDayOfMonth = new Date(defaultYear, defaultMonth, 0).getDate();
+      
+      // Gunakan tanggal hari ini, atau hari terakhir jika melebihi
+      const day = Math.min(currentDay, lastDayOfMonth);
+      
+      // Format: YYYY-MM-DD
+      const month = defaultMonth.toString().padStart(2, '0');
+      const dayStr = day.toString().padStart(2, '0');
+      return `${defaultYear}-${month}-${dayStr}`;
+    }
+    return new Date().toISOString().split('T')[0];
+  };
+  
+  const [tanggal, setTanggal] = useState(getDefaultDate());
   const [uraian, setUraian] = useState('');
   const [tipe, setTipe] = useState<'masuk' | 'keluar'>('masuk');
   const [jumlah, setJumlah] = useState('');
+  const [jumlahDisplay, setJumlahDisplay] = useState(''); // Untuk tampilan dengan format Rp
   const [sumber_atau_penerima, setSumberAtauPenerima] = useState('');
   const [lampiran, setLampiran] = useState<File | null>(null);
   const [lampiranPreview, setLampiranPreview] = useState<string | null>(null);
@@ -26,16 +49,38 @@ export default function TransactionModal({ isOpen, onClose, onSubmit, isBankMuta
 
   useEffect(() => {
     if (isOpen) {
-      setTanggal(now);
+      setTanggal(getDefaultDate());
       setUraian('');
       setJumlah('');
+      setJumlahDisplay('');
       setSumberAtauPenerima('');
       setTipe('masuk');
       setLampiran(null);
       setLampiranPreview(null);
       setUseBank(false);
     }
-  }, [isOpen, now]);
+  }, [isOpen, defaultMonth, defaultYear]);
+
+  // Format angka ke Rupiah
+  const formatRupiah = (value: string) => {
+    // Hapus semua karakter non-digit
+    const numbers = value.replace(/\D/g, '');
+    
+    if (!numbers) return '';
+    
+    // Format dengan pemisah ribuan
+    return new Intl.NumberFormat('id-ID').format(parseInt(numbers));
+  };
+
+  // Handle perubahan input jumlah
+  const handleJumlahChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    // Hapus semua karakter non-digit
+    const numbers = value.replace(/\D/g, '');
+    
+    setJumlah(numbers);
+    setJumlahDisplay(numbers ? formatRupiah(numbers) : '');
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -51,6 +96,39 @@ export default function TransactionModal({ isOpen, onClose, onSubmit, isBankMuta
     setLampiranPreview(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
+
+  // Handle paste dari clipboard
+  useEffect(() => {
+    const handlePaste = async (e: ClipboardEvent) => {
+      // Hanya proses jika modal terbuka
+      if (!isOpen) return;
+
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      // Cari item yang berupa gambar
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          e.preventDefault();
+          const file = items[i].getAsFile();
+          if (file) {
+            const compressed = await compressImage(file);
+            setLampiran(compressed);
+            setLampiranPreview(URL.createObjectURL(compressed));
+          }
+          break;
+        }
+      }
+    };
+
+    if (isOpen) {
+      window.addEventListener('paste', handlePaste);
+    }
+
+    return () => {
+      window.removeEventListener('paste', handlePaste);
+    };
+  }, [isOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -175,14 +253,17 @@ export default function TransactionModal({ isOpen, onClose, onSubmit, isBankMuta
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah (Rp)</label>
-            <input
-              type="number"
-              value={jumlah}
-              onChange={(e) => setJumlah(e.target.value)}
-              placeholder="0"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-              required
-            />
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">Rp</span>
+              <input
+                type="text"
+                value={jumlahDisplay}
+                onChange={handleJumlahChange}
+                placeholder="0"
+                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                required
+              />
+            </div>
           </div>
 
           <div>
@@ -231,6 +312,7 @@ export default function TransactionModal({ isOpen, onClose, onSubmit, isBankMuta
                   </svg>
                   <p className="text-sm text-gray-500">Klik untuk pilih gambar</p>
                   <p className="text-xs text-gray-400 mt-1">JPG, PNG, max 5MB</p>
+                  <p className="text-xs text-green-600 mt-1 font-medium">atau tekan Ctrl+V untuk paste</p>
                 </div>
                 <input
                   ref={fileInputRef}
