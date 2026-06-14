@@ -29,10 +29,17 @@ async function fetchImageAsBase64(url: string): Promise<{ base64: string; ext: s
   }
 }
 
+type KasData = {
+  rekeningBank: number;
+  kasTunai: number;
+  saldoTercatat: number;
+};
+
 export async function exportToExcel(
   transactions: Transaction[],
   selectedMonth: number,
-  selectedYear: number
+  selectedYear: number,
+  kasData?: KasData
 ): Promise<void> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Masjid Daruth Tholibin';
@@ -41,36 +48,6 @@ export async function exportToExcel(
   const sheet = workbook.addWorksheet(
     `Transaksi ${MONTHS[selectedMonth - 1]} ${selectedYear}`
   );
-
-  // ── Judul ──────────────────────────────────────────────────────────────────
-  sheet.mergeCells('A1:G1');
-  const titleCell = sheet.getCell('A1');
-  titleCell.value = 'Masjid Daruth Tholibin';
-  titleCell.font = { bold: true, size: 14, color: { argb: 'FF15803D' } };
-  titleCell.alignment = { horizontal: 'center' };
-
-  sheet.mergeCells('A2:G2');
-  const subTitleCell = sheet.getCell('A2');
-  subTitleCell.value = `Laporan Transaksi — ${MONTHS[selectedMonth - 1]} ${selectedYear}`;
-  subTitleCell.font = { size: 11, color: { argb: 'FF6B7280' } };
-  subTitleCell.alignment = { horizontal: 'center' };
-
-  sheet.addRow([]); // baris kosong
-
-  // ── Header kolom ──────────────────────────────────────────────────────────
-  const headerRow = sheet.addRow(['No', 'Tanggal', 'Uraian', 'Sumber/Penerima', 'Masuk (Rp)', 'Keluar (Rp)', 'Saldo (Rp)', 'Lampiran']);
-  headerRow.eachCell((cell) => {
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF15803D' } };
-    cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
-    cell.alignment = { horizontal: 'center', vertical: 'middle' };
-    cell.border = {
-      top: { style: 'thin', color: { argb: 'FF0F6030' } },
-      bottom: { style: 'thin', color: { argb: 'FF0F6030' } },
-      left: { style: 'thin', color: { argb: 'FF0F6030' } },
-      right: { style: 'thin', color: { argb: 'FF0F6030' } },
-    };
-  });
-  headerRow.height = 22;
 
   // ── Lebar kolom ───────────────────────────────────────────────────────────
   sheet.getColumn(1).width = 5;   // No
@@ -82,6 +59,129 @@ export async function exportToExcel(
   sheet.getColumn(7).width = 18;  // Saldo
   sheet.getColumn(8).width = 22;  // Lampiran
 
+  // ── Helper: border tipis untuk sel kas ────────────────────────────────────
+  const kasBorder: ExcelJS.Borders = {
+    top:    { style: 'thin', color: { argb: 'FFD1FAE5' } },
+    bottom: { style: 'thin', color: { argb: 'FFD1FAE5' } },
+    left:   { style: 'thin', color: { argb: 'FFD1FAE5' } },
+    right:  { style: 'thin', color: { argb: 'FFD1FAE5' } },
+  };
+
+  // ── Judul ──────────────────────────────────────────────────────────────────
+  sheet.mergeCells('A1:H1');
+  const titleCell = sheet.getCell('A1');
+  titleCell.value = 'Masjid Daruth Tholibin';
+  titleCell.font = { bold: true, size: 16, color: { argb: 'FF15803D' } };
+  titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0FDF4' } };
+  sheet.getRow(1).height = 28;
+
+  sheet.mergeCells('A2:H2');
+  const subTitleCell = sheet.getCell('A2');
+  subTitleCell.value = `Laporan Transaksi — ${MONTHS[selectedMonth - 1]} ${selectedYear}`;
+  subTitleCell.font = { size: 11, color: { argb: 'FF6B7280' } };
+  subTitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  subTitleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0FDF4' } };
+  sheet.getRow(2).height = 20;
+
+  sheet.addRow([]); // row 3 — spacer
+
+  // ── Info Kas & Rekening (di atas tabel) ───────────────────────────────────
+  let dataStartRow: number;
+
+  if (kasData) {
+    // Row 4 — label header seksi
+    sheet.mergeCells('A4:H4');
+    const kasSecLabel = sheet.getCell('A4');
+    kasSecLabel.value = 'Info Kas & Rekening  (akumulasi semua tahun)';
+    kasSecLabel.font = { bold: true, size: 11, color: { argb: 'FF065F46' } };
+    kasSecLabel.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+    kasSecLabel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
+    sheet.getRow(4).height = 20;
+
+    // Row 5 — 3 kartu sejajar: Saldo Tercatat | Rekening Bank | Kas Tunai
+    // Kartu 1: A5:B6 — Saldo Tercatat (biru)
+    // Kartu 2: D5:E6 — Rekening Bank (hijau)
+    // Kartu 3: G5:H6 — Kas Tunai (kuning)
+
+    const paintCard = (
+      labelCell: string, valueCell: string, mergeLabel: string, mergeValue: string,
+      label: string, value: number,
+      bgArgb: string, valArgb: string,
+    ) => {
+      sheet.mergeCells(mergeLabel);
+      sheet.mergeCells(mergeValue);
+
+      const lCell = sheet.getCell(labelCell);
+      lCell.value = label;
+      lCell.font = { size: 9, color: { argb: 'FF6B7280' } };
+      lCell.alignment = { horizontal: 'center', vertical: 'bottom' };
+      lCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgArgb } };
+      lCell.border = kasBorder;
+
+      const vCell = sheet.getCell(valueCell);
+      vCell.value = value;
+      vCell.numFmt = '#,##0';
+      vCell.font = { bold: true, size: 12, color: { argb: valArgb } };
+      vCell.alignment = { horizontal: 'center', vertical: 'top' };
+      vCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgArgb } };
+      vCell.border = kasBorder;
+    };
+
+    // Saldo Tercatat — kolom A-B
+    paintCard('A5','A6','A5:C5','A6:C6',
+      'Saldo Tercatat', kasData.saldoTercatat, 'FFDBEAFE', 'FF1D4ED8');
+
+    // Rekening Bank — kolom D-F (tengah, ada gap col C & D — gunakan D-F saja, skip C)
+    paintCard('D5','D6','D5:F5','D6:F6',
+      'Rekening Bank', kasData.rekeningBank, 'FFD1FAE5', 'FF065F46');
+
+    // Kas Tunai — kolom G-H
+    paintCard('G5','G6','G5:H5','G6:H6',
+      'Kas Tunai  (Saldo − Rekening)', kasData.kasTunai,
+      'FFFEF9C3', kasData.kasTunai >= 0 ? 'FFB45309' : 'FFDC2626');
+
+    sheet.getRow(5).height = 16;
+    sheet.getRow(6).height = 22;
+
+    sheet.addRow([]); // row 7 — spacer sebelum tabel
+
+    // Header tabel mulai row 8, data row 9
+    dataStartRow = 9;
+
+    // ── Header kolom (row 8) ───────────────────────────────────────────────
+    const headerRow = sheet.addRow(['No', 'Tanggal', 'Uraian', 'Sumber/Penerima', 'Masuk (Rp)', 'Keluar (Rp)', 'Saldo (Rp)', 'Lampiran']);
+    headerRow.eachCell((cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF15803D' } };
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = {
+        top:    { style: 'thin', color: { argb: 'FF0F6030' } },
+        bottom: { style: 'thin', color: { argb: 'FF0F6030' } },
+        left:   { style: 'thin', color: { argb: 'FF0F6030' } },
+        right:  { style: 'thin', color: { argb: 'FF0F6030' } },
+      };
+    });
+    headerRow.height = 22;
+  } else {
+    // Tidak ada kasData — layout semula, header tabel di row 4
+    sheet.addRow([]); // row 3 — sudah dibuat, ini row 4 sebenarnya... addRow lagi
+    const headerRow = sheet.addRow(['No', 'Tanggal', 'Uraian', 'Sumber/Penerima', 'Masuk (Rp)', 'Keluar (Rp)', 'Saldo (Rp)', 'Lampiran']);
+    headerRow.eachCell((cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF15803D' } };
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = {
+        top:    { style: 'thin', color: { argb: 'FF0F6030' } },
+        bottom: { style: 'thin', color: { argb: 'FF0F6030' } },
+        left:   { style: 'thin', color: { argb: 'FF0F6030' } },
+        right:  { style: 'thin', color: { argb: 'FF0F6030' } },
+      };
+    });
+    headerRow.height = 22;
+    dataStartRow = 5;
+  }
+
   // ── Data rows ─────────────────────────────────────────────────────────────
   let saldo = 0;
   let totalMasuk = 0;
@@ -92,8 +192,6 @@ export async function exportToExcel(
     t.lampiran ? fetchImageAsBase64(t.lampiran) : Promise.resolve(null)
   );
   const images = await Promise.all(imagePromises);
-
-  const dataStartRow = 5; // header ada di row 4, data mulai row 5
 
   for (let i = 0; i < transactions.length; i++) {
     const t = transactions[i];

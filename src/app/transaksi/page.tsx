@@ -54,11 +54,34 @@ function TransaksiContent() {
   const [exportingExcel, setExportingExcel] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const exportRef = useRef<HTMLDivElement>(null);
+  const [kasData, setKasData] = useState<{ rekeningBank: number; kasTunai: number; saldoTercatat: number } | null>(null);
   const [showBankConfirmModal, setShowBankConfirmModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Transaction[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const fetchKasData = useCallback(async () => {
+    try {
+      const [totalRes, bankRes] = await Promise.all([
+        fetch('/api/transactions/total', { cache: 'no-store' }),
+        fetch('/api/bank-mutations', { cache: 'no-store' }),
+      ]);
+      const totalData = await totalRes.json();
+      const bankData = await bankRes.json();
+      const rekeningBank = Array.isArray(bankData)
+        ? bankData.reduce((sum: number, m: any) => sum + m.jumlah, 0)
+        : 0;
+      const saldoTercatat = totalData.saldo ?? 0;
+      setKasData({
+        rekeningBank,
+        kasTunai: saldoTercatat - rekeningBank,
+        saldoTercatat,
+      });
+    } catch {
+      // gagal fetch kas data — tidak blokir export
+    }
+  }, []);
 
   const fetchTransactions = useCallback(async () => {
     setLoading(true);
@@ -133,6 +156,7 @@ function TransaksiContent() {
   };
 
   useEffect(() => { fetchTransactions(); }, [fetchTransactions]);
+  useEffect(() => { fetchKasData(); }, [fetchKasData]);
 
   const handleBankTransactionCreated = () => {
     // Tampilkan modal konfirmasi custom
@@ -187,6 +211,8 @@ function TransaksiContent() {
     if (!exportRef.current) return;
     setExporting(true);
     try {
+      // Refresh kas data sebelum generate
+      await fetchKasData();
       const html2canvas = (await import('html2canvas')).default;
       // Tampilkan dulu elemen export
       exportRef.current.style.display = 'block';
@@ -223,8 +249,9 @@ function TransaksiContent() {
   const handleExportExcel = async () => {
     setExportingExcel(true);
     try {
+      await fetchKasData();
       const { exportToExcel } = await import('@/lib/exportExcel');
-      await exportToExcel(transactions, selectedMonth, selectedYear);
+      await exportToExcel(transactions, selectedMonth, selectedYear, kasData ?? undefined);
     } catch (err) {
       console.error(err);
       alert('Gagal mengekspor Excel');
@@ -396,13 +423,39 @@ function TransaksiContent() {
         }}
       >
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', paddingBottom: '12px', borderBottom: '2px solid #15803d' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px', paddingBottom: '12px', borderBottom: '2px solid #15803d' }}>
           <img src="/daruth-tholibin.png" alt="Logo" style={{ width: '48px', height: '48px', objectFit: 'contain' }} crossOrigin="anonymous" />
           <div>
             <div style={{ fontWeight: 'bold', fontSize: '16px', color: '#15803d' }}>Masjid Daruth Tholibin</div>
             <div style={{ fontSize: '12px', color: '#6b7280' }}>Laporan Transaksi — {MONTHS[selectedMonth - 1]} {selectedYear}</div>
           </div>
         </div>
+
+        {/* Info Kas & Rekening — di atas tabel */}
+        {kasData && (
+          <div style={{ marginBottom: '14px' }}>
+            <div style={{ backgroundColor: '#d1fae5', borderRadius: '6px 6px 0 0', padding: '6px 12px', fontSize: '11px', fontWeight: 'bold', color: '#065f46' }}>
+              Info Kas &amp; Rekening &nbsp;<span style={{ fontWeight: 'normal', color: '#6b7280' }}>(akumulasi semua tahun)</span>
+            </div>
+            <div style={{ display: 'flex', gap: '0', border: '1px solid #d1fae5', borderTop: 'none', borderRadius: '0 0 6px 6px', overflow: 'hidden' }}>
+              {/* Saldo Tercatat */}
+              <div style={{ flex: 1, backgroundColor: '#dbeafe', padding: '10px 12px', borderRight: '1px solid #bfdbfe' }}>
+                <div style={{ fontSize: '10px', color: '#6b7280', marginBottom: '4px' }}>Saldo Tercatat</div>
+                <div style={{ fontWeight: 'bold', fontSize: '13px', color: '#1d4ed8' }}>{formatRupiah(kasData.saldoTercatat)}</div>
+              </div>
+              {/* Rekening Bank */}
+              <div style={{ flex: 1, backgroundColor: '#dcfce7', padding: '10px 12px', borderRight: '1px solid #bbf7d0' }}>
+                <div style={{ fontSize: '10px', color: '#6b7280', marginBottom: '4px' }}>Rekening Bank</div>
+                <div style={{ fontWeight: 'bold', fontSize: '13px', color: '#065f46' }}>{formatRupiah(kasData.rekeningBank)}</div>
+              </div>
+              {/* Kas Tunai */}
+              <div style={{ flex: 1, backgroundColor: '#fef9c3', padding: '10px 12px' }}>
+                <div style={{ fontSize: '10px', color: '#6b7280', marginBottom: '4px' }}>Kas Tunai (Saldo − Rekening)</div>
+                <div style={{ fontWeight: 'bold', fontSize: '13px', color: kasData.kasTunai >= 0 ? '#b45309' : '#dc2626' }}>{formatRupiah(kasData.kasTunai)}</div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Tabel */}
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
